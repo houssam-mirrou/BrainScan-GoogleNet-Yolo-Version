@@ -1,0 +1,7 @@
+# Virtual environments
+venv/
+venv-gpu/
+
+# Machine learning models and datasets
+models/
+data/
