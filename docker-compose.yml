@@ -1,0 +1,69 @@
+services:
+  mlflow:
+    build: ./services/mlflow
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - mlflow_data:/mlflow_data
+      - ./models:/models:ro
+      - ./ops:/ops:ro
+    environment:
+      MLFLOW_TRACKING_URI: http://localhost:5000
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow_data/mlflow.db
+      - --artifacts-destination
+      - /mlflow_data/artifacts
+      - --serve-artifacts
+      - --allowed-hosts
+      - "localhost:*,127.0.0.1:*,mlflow:5000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./services/api
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./models:/models:ro
+    environment:
+      CLASSIFIER_PATH: /models/classification/inceptionv3_multiscale_v2.keras
+      DETECTOR_PATH: /models/final/yolo/best.pt
+      TF_CPP_MIN_LOG_LEVEL: "2"
+      OMP_NUM_THREADS: "2"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+
+  streamlit:
+    build: ./services/ui
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mlflow_data:
