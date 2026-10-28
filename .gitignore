@@ -5,3 +5,12 @@ venv-gpu/
 # Machine learning models and datasets
 models/
 data/
+
+# Local application files
+.venv/
+.env
+__pycache__/
+*.pyc
+*.egg-info/
+mlruns/
+mlartifacts/
