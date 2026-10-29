@@ -11,7 +11,8 @@ venv-gpu
 data
 models
 notebooks
-airflow
+airflow/*
+!airflow/dags
 mlruns
 mlartifacts
 *.egg-info

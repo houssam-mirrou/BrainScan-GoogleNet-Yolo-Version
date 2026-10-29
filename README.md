@@ -57,10 +57,62 @@ Recorded classification test accuracy: 0.8910; macro F1: 0.8963. YOLO test mAP50
 - `src/mlflow_tracking.py`: saved-experiment import.
 - `docker/`, `docker-compose.yml`, `pyproject.toml`: Python 3.12 services and dependencies.
 
-Existing notebooks, datasets, models, and Airflow are preserved. Streamlit never loads models; MLflow is separate from inference.
+Existing notebooks, datasets and selected models are preserved. Streamlit never loads models; MLflow is separate from inference.
 
 ## Validation performed
 
 Built and started all three Docker services with Python 3.12. Tested `/health`, `/docs`, and real `/predict` requests using existing MRIs from each class; checked probability sums, class mappings, bounding-box bounds, grayscale/RGBA PNGs, invalid/oversized uploads, and concurrent requests. Streamlit's AppTest exercised the real upload and Analyze widgets against FastAPI and verified the preview, confidence, probability chart, annotated image, detection table, and invalid-upload error. This is application integration testing, not a new model accuracy evaluation.
 
 Both MLflow imports completed; saved metrics and downloaded checkpoint hashes were checked, and runs/artifacts survived an MLflow restart. `pip check` passed in all services. The tested API uses TensorFlow CPU 2.21.0, Keras 3.15.1, and Ultralytics 8.4.191; Streamlit 1.66.1 and MLflow 3.17.2 were tested.
+
+## Airflow experiments
+
+`docker compose up --build -d` also starts Airflow at http://localhost:8080.
+This local development service uses Airflow 2.11/Python 3.12, SQLite and the
+SequentialExecutor. Metadata, logs and candidate checkpoints persist in named
+volumes. Find the generated `admin` password with:
+
+```bash
+docker compose exec airflow cat /opt/airflow/state/standalone_admin_password.txt
+docker compose exec airflow airflow dags list-import-errors
+```
+
+Unpause `brainscan_pipeline` and click **Trigger DAG** when ready for real training.
+There is no automatic schedule. The Graph view shows each model's validation →
+preprocessing → training → validation-set evaluation → MLflow logging → candidate
+registration tasks. Click a task to inspect its logs and errors. A failed task
+blocks its downstream tasks. Only one task/run executes at a time; training uses
+CPU in this development image. ML dependencies run in `/opt/ml`, separate from
+Airflow. Training is expensive even on CPU; do not trigger the DAG as a smoke test.
+
+The existing prepared classification and **unbalanced four-class** detection
+splits are reused. Manifests, image hashes, class mappings and YOLO boxes must
+validate first. New or changed images require reviewed labels and updated
+manifests before acceptance. No Tumor retains its annotated boxes in this selected
+detector; the older three-class preparation script is deliberately not invoked.
+Classification continues the selected frozen V2 `.keras` checkpoint with a fresh
+optimizer; detection starts from pretrained `yolov8n.pt` (downloaded on first training).
+Notebook training parameters are preserved. Test images are audited for leakage,
+but never used for automated evaluation or selection.
+
+Airflow sends metrics, parameters, dataset fingerprint and allowlisted artifacts
+through `http://mlflow:5000` to the existing MLflow server. MRI images and datasets
+are not uploaded. Each run writes under `/app/models/candidates/<run-hash>/<model>`
+in the `airflow_candidates` volume. `candidate.json` records metrics, checkpoint
+hash and MLflow run ID after successful logging. Final models are mounted read-only;
+promotion and deployment remain manual. Download checkpoints from MLflow or copy
+from the container with `docker compose cp`. Removing volumes with `down -v`
+also deletes Airflow history and candidates.
+
+Lightweight checks (unique run ID required; neither command trains):
+
+```bash
+docker compose exec airflow /opt/ml/bin/python -m src.pipeline classification validate --run-id audit-001
+docker compose exec airflow /opt/ml/bin/python -m src.pipeline classification preprocess --run-id audit-001
+docker compose exec airflow /opt/ml/bin/python -m src.pipeline detection validate --run-id audit-001
+docker compose exec airflow /opt/ml/bin/python -m src.pipeline detection preprocess --run-id audit-001
+docker compose exec airflow /opt/ml/bin/python -c "import urllib.request; print(urllib.request.urlopen('http://mlflow:5000/health').status)"
+```
+
+The same CLI exposes `train`, `evaluate`, `log`, `save` for each model; the DAG
+runs these in order. A new run ID creates a separate experiment directory.

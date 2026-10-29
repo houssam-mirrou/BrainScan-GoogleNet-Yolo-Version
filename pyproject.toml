@@ -22,6 +22,15 @@ api = [
 ]
 ui = ["streamlit>=1.45,<2", "requests>=2.32,<3", "Pillow>=11,<13"]
 tracking = ["mlflow>=3.5,<4"]
+training = [
+    "Pillow>=11,<13",
+    "numpy>=1.26,<3",
+    "tensorflow-cpu>=2.20,<2.23",
+    "keras>=3.12,<4",
+    "ultralytics>=8.3,<9",
+    "scikit-learn>=1.5,<2",
+    "PyYAML>=6,<7",
+]
 
 [tool.setuptools.packages.find]
 include = ["api*", "src*"]
