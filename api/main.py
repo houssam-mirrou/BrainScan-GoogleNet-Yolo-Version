@@ -2,8 +2,9 @@ import io
 import warnings
 from contextlib import asynccontextmanager
 from threading import Lock
+from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from api.inference import load_models, predict_image
@@ -15,7 +16,7 @@ prediction_lock = Lock()
 
 @asynccontextmanager
 async def lifespan(app):
-    app.state.classifier, app.state.detector = load_models()
+    app.state.classifier, app.state.detectors = load_models()
     yield
 
 
@@ -28,7 +29,10 @@ def health():
 
 
 @app.post("/predict")
-def predict(file: UploadFile = File(...)):
+def predict(
+    file: UploadFile = File(...),
+    detection_model: Literal["unbalanced", "balanced"] = Form("unbalanced"),
+):
     if file.content_type not in ("image/jpeg", "image/png"):
         raise HTTPException(415, "Upload a JPG or PNG image")
     content = file.file.read(MAX_UPLOAD_BYTES + 1)
@@ -48,4 +52,6 @@ def predict(file: UploadFile = File(...)):
 
     # YOLO's predictor holds mutable state; serialize concurrent requests.
     with prediction_lock:
-        return predict_image(image, app.state.classifier, app.state.detector)
+        result = predict_image(image, app.state.classifier, app.state.detectors[detection_model])
+    result["detection_model"] = detection_model
+    return result

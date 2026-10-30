@@ -15,6 +15,17 @@ st.title("BrainScan AI")
 st.warning("Research prototype. Not a clinically validated diagnostic tool.")
 st.caption("No Tumor bounding boxes mark annotated non-tumor regions, not tumors.")
 
+DETECTION_MODELS = {
+    "unbalanced": "YOLOv8n — Unbalanced data (reference)",
+    "balanced": "YOLOv8n — Balanced data",
+}
+detection_model = st.selectbox(
+    "Detection model",
+    options=list(DETECTION_MODELS),
+    format_func=DETECTION_MODELS.get,
+    help="Choose the YOLO training dataset. Both models detect the same four classes.",
+)
+
 uploaded = st.file_uploader("Upload an MRI image (up to 10 MB)", type=["jpg", "jpeg", "png"])
 if uploaded is not None:
     content = uploaded.getvalue()
@@ -36,6 +47,7 @@ if uploaded is not None:
                 response = requests.post(
                     f"{API_URL}/predict",
                     files={"file": (uploaded.name, content, uploaded.type)},
+                    data={"detection_model": detection_model},
                     timeout=120,
                 )
                 response.raise_for_status()
@@ -61,7 +73,11 @@ if uploaded is not None:
             draw.rectangle(box, outline=color, width=3)
             label = f"{detection['class_name']} {detection['confidence']:.1%}"
             draw.text((box[0], max(0, box[1] - 14)), label, fill=color)
-        st.image(annotated, caption="YOLO detections", width="stretch")
+        st.image(
+            annotated,
+            caption=f"Detections: {DETECTION_MODELS[result['detection_model']]}",
+            width="stretch",
+        )
         if result["detections"]:
             st.dataframe(result["detections"], hide_index=True)
         else:

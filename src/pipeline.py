@@ -12,6 +12,8 @@ def write(path, value):
 
 
 def run(kind, stage, run_id):
+    model_kind = 'detection' if kind == 'detection_balanced' else kind
+    balanced = kind == 'detection_balanced'
     if not run_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in run_id):
         raise ValueError('Use an alphanumeric run ID (hyphens/underscores allowed)')
     base = ROOT / 'models/candidates'
@@ -19,30 +21,43 @@ def run(kind, stage, run_id):
     if not output.resolve().is_relative_to(base.resolve()) or base.is_symlink():
         raise ValueError('Candidate output must stay inside models/candidates')
     if stage == 'validate':
-        report = validate(kind)
+        report = validate(model_kind)
         output.mkdir(parents=True, exist_ok=False)
         write(output / 'validation.json', report)
         return
     report = json.loads((output / 'validation.json').read_text())
     if stage == 'preprocess':
-        # Reuse audited data; only relocate the absolute YOLO path for Docker.
-        if kind == 'detection':
+        preprocessing = dict(reused_processed_data=True,
+              image_size=224 if model_kind == 'classification' else 640, classes=CLASSES)
+        if model_kind == 'detection':
             import yaml
             dataset = ROOT / 'data/processed/detection_4class'
+            preprocessing['balancing'] = balanced
+            if balanced:
+                from src.detection.balance import prepare_balanced_dataset
+                if validate(model_kind) != report:
+                    raise ValueError('Dataset changed after validation')
+                preprocessing.update(prepare_balanced_dataset(dataset, output / 'dataset'))
+                dataset = output / 'dataset'
+                write(output / 'balanced_validation.json', validate(model_kind, dataset=dataset))
             (output / 'data.yaml').write_text(yaml.safe_dump(dict(
-                path=str(dataset), train='images/train', val='images/val', names=dict(enumerate(CLASSES)))))
-        write(output / 'preprocessing.json', dict(reused_processed_data=True,
-              image_size=224 if kind == 'classification' else 640, classes=CLASSES))
+                path=str(dataset), train='images/train', val='images/val',
+                test='images/test', names=dict(enumerate(CLASSES)))))
+        write(output / 'preprocessing.json', preprocessing)
     elif stage == 'train':
         # Detect edits between validation and training before loading any model.
-        if validate(kind) != report:
+        if validate(model_kind) != report:
             raise ValueError('Dataset changed after validation')
-        module = importlib.import_module(f'src.{kind}.train')
+        if balanced:
+            balanced_report = json.loads((output / 'balanced_validation.json').read_text())
+            if validate(model_kind, dataset=output / 'dataset') != balanced_report:
+                raise ValueError('Balanced dataset changed after preprocessing')
+        module = importlib.import_module(f'src.{model_kind}.train')
         checkpoint = module.train(output)
         write(output / 'training.json', dict(checkpoint=str(checkpoint.relative_to(output)), parameters=module.PARAMS))
     elif stage == 'evaluate':
         training = json.loads((output / 'training.json').read_text())
-        metrics = importlib.import_module(f'src.{kind}.evaluate').evaluate(output / training['checkpoint'], output)
+        metrics = importlib.import_module(f'src.{model_kind}.evaluate').evaluate(output / training['checkpoint'], output)
         if not metrics or not all(math.isfinite(v) for v in metrics.values()):
             raise ValueError('Evaluation returned missing/non-finite metrics')
         write(output / 'metrics.json', metrics)
@@ -57,10 +72,18 @@ def run(kind, stage, run_id):
             mlflow.log_params(training['parameters'])
             mlflow.log_param('architecture', 'InceptionV3_MultiScale_V2' if kind == 'classification' else 'YOLOv8n')
             mlflow.log_param('dataset_version', report['dataset_version'])
+            if model_kind == 'detection':
+                mlflow.log_param('balancing', balanced)
+            if balanced:
+                preprocessing = json.loads((output / 'preprocessing.json').read_text())
+                balanced_report = json.loads((output / 'balanced_validation.json').read_text())
+                mlflow.log_params(dict(sampling_seed=preprocessing['seed'],
+                                      target_per_class=preprocessing['target_per_class'],
+                                      balanced_dataset_version=balanced_report['dataset_version']))
             mlflow.log_param('classes', json.dumps(CLASSES))
             mlflow.log_metrics(json.loads((output / 'metrics.json').read_text()))
             # Explicit allowlist: never upload images, YOLO batch plots or datasets.
-            for name in ('validation.json', 'preprocessing.json', 'training.json', 'metrics.json', 'history.csv', 'confusion_matrix.csv', 'training/results.csv', 'training/args.yaml'):
+            for name in ('validation.json', 'balanced_validation.json', 'preprocessing.json', 'training.json', 'metrics.json', 'history.csv', 'confusion_matrix.csv', 'training/results.csv', 'training/args.yaml'):
                 if (output / name).is_file():
                     mlflow.log_artifact(str(output / name), 'results')
             mlflow.log_artifact(str(output / training['checkpoint']), 'checkpoints')
@@ -76,7 +99,7 @@ def run(kind, stage, run_id):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('kind', choices=['classification', 'detection'])
+    parser.add_argument('kind', choices=['classification', 'detection', 'detection_balanced'])
     parser.add_argument('stage', choices=['validate', 'preprocess', 'train', 'evaluate', 'log', 'save'])
     parser.add_argument('--run-id', required=True)
     args = parser.parse_args()

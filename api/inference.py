@@ -14,20 +14,27 @@ def load_models():
         "CLASSIFIER_PATH",
         str(ROOT / "models/classification/inceptionv3_multiscale_v2.keras"),
     ))
-    detector_path = Path(os.getenv(
-        "DETECTOR_PATH", str(ROOT / "models/final/yolo/best.pt"),
-    ))
-    for path in (classifier_path, detector_path):
+    detector_paths = {
+        "unbalanced": Path(os.getenv(
+            "DETECTOR_PATH", str(ROOT / "models/final/yolo/best.pt"),
+        )),
+        "balanced": Path(os.getenv(
+            "BALANCED_DETECTOR_PATH",
+            str(ROOT / "models/detection_4class/yolov8n_4class_balanced/weights/best.pt"),
+        )),
+    }
+    for path in (classifier_path, *detector_paths.values()):
         if not path.is_file():
             raise FileNotFoundError(f"Model checkpoint not found: {path}")
 
     classifier = tf.keras.models.load_model(classifier_path, compile=False)
-    detector = YOLO(str(detector_path))
+    detectors = {name: YOLO(str(path)) for name, path in detector_paths.items()}
     if classifier.input_shape[1:] != (224, 224, 3) or classifier.output_shape[-1] != 4:
         raise ValueError("Expected a 224x224 RGB classifier with four outputs")
-    if [detector.names[i] for i in range(4)] != CLASSES:
-        raise ValueError(f"Unexpected detector class mapping: {detector.names}")
-    return classifier, detector
+    for name, detector in detectors.items():
+        if detector.names != dict(enumerate(CLASSES)):
+            raise ValueError(f"Unexpected {name} detector class mapping: {detector.names}")
+    return classifier, detectors
 
 
 def predict_image(image, classifier, detector):

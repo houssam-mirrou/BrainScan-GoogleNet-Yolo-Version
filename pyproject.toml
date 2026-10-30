@@ -30,6 +30,7 @@ training = [
     "ultralytics>=8.3,<9",
     "scikit-learn>=1.5,<2",
     "PyYAML>=6,<7",
+    "pandas>=2.2,<4",
 ]
 
 [tool.setuptools.packages.find]

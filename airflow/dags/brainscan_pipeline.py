@@ -19,7 +19,7 @@ with DAG(
     default_args={'retries': 0}, tags=['brainscan', 'manual', 'training'],
     description='Validated data → candidate checkpoints; deployment stays manual.',
 ) as dag:
-    for kind in ('classification', 'detection'):
+    for kind in ('classification', 'detection', 'detection_balanced'):
         previous = None
         for stage in ('validate', 'preprocess', 'train', 'evaluate', 'log', 'save'):
             task = PythonOperator(task_id=f'{kind}_{stage}', python_callable=run_stage,

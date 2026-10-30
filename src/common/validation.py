@@ -17,9 +17,10 @@ def digest(path):
         return hashlib.file_digest(file, 'sha256').hexdigest()
 
 
-def validate(kind):
+def validate(kind, dataset=None):
     base = ROOT / 'data/processed'
-    dataset = base / ('classification' if kind == 'classification' else 'detection_4class')
+    dataset = Path(dataset) if dataset is not None else base / (
+        'classification' if kind == 'classification' else 'detection_4class')
     manifest = base / 'split_manifest.csv' if kind == 'classification' else dataset / 'manifest.csv'
     rows = list(csv.DictReader(manifest.open()))
     if kind == 'detection':

@@ -1,4 +1,4 @@
-"""Selected unbalanced four-class 640 configuration from notebook 04."""
+"""Shared balanced/unbalanced four-class 640 configuration from notebook 04."""
 PARAMS = dict(epochs=60, patience=15, imgsz=640, batch=8, workers=2,
               optimizer='AdamW', lr0=5e-4, lrf=0.01, cos_lr=True,
               weight_decay=0.0005, warmup_epochs=3.0, box=7.5, cls=0.5, dfl=1.5,
